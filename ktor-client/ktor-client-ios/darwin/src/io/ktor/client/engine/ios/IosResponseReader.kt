@@ -13,14 +13,12 @@ import io.ktor.utils.io.CancellationException
 import kotlinx.coroutines.*
 import kotlinx.coroutines.channels.*
 import platform.Foundation.*
-import platform.darwin.*
 import kotlin.coroutines.*
 
 internal class IosResponseReader(
     private val callContext: CoroutineContext,
-    private val requestData: HttpRequestData,
-    private val config: IosClientEngineConfig
-) : NSObject(), NSURLSessionDataDelegateProtocol {
+    private val requestData: HttpRequestData
+) {
     private val chunks = Channel<ByteArray>(Channel.UNLIMITED)
     private val rawResponse = CompletableDeferred<NSHTTPURLResponse>(callContext[Job])
 
@@ -57,57 +55,23 @@ internal class IosResponseReader(
         )
     }
 
-    override fun URLSession(session: NSURLSession, dataTask: NSURLSessionDataTask, didReceiveData: NSData) {
-        if (!rawResponse.isCompleted) {
-            val response = dataTask.response as NSHTTPURLResponse
-            rawResponse.complete(response)
-        }
-
-        val content = didReceiveData.toByteArray()
-        try {
-            chunks.offer(content)
-        } catch (cause: CancellationException) {
-            dataTask.cancel()
-        }
-    }
-
-    override fun URLSession(session: NSURLSession, task: NSURLSessionTask, didCompleteWithError: NSError?) {
-        if (didCompleteWithError != null) {
-            val exception = handleNSError(requestData, didCompleteWithError)
+    fun complete(response: NSHTTPURLResponse, didReceiveData: NSData, error: NSError?) {
+        if (error != null) {
+            val exception = handleNSError(requestData, error)
             chunks.close(exception)
             rawResponse.completeExceptionally(exception)
             return
         }
 
         if (!rawResponse.isCompleted) {
-            val response = task.response as NSHTTPURLResponse
             rawResponse.complete(response)
         }
 
-        chunks.close()
-    }
-
-    override fun URLSession(
-        session: NSURLSession,
-        task: NSURLSessionTask,
-        willPerformHTTPRedirection: NSHTTPURLResponse,
-        newRequest: NSURLRequest,
-        completionHandler: (NSURLRequest?) -> Unit
-    ) {
-        completionHandler(null)
-    }
-
-    override fun URLSession(
-        session: NSURLSession,
-        task: NSURLSessionTask,
-        didReceiveChallenge: NSURLAuthenticationChallenge,
-        completionHandler: (NSURLSessionAuthChallengeDisposition, NSURLCredential?) -> Unit
-    ) {
-        val handler = config.challengeHandler
-        if (handler != null) {
-            handler(session, task, didReceiveChallenge, completionHandler)
-        } else {
-            completionHandler(NSURLSessionAuthChallengePerformDefaultHandling, didReceiveChallenge.proposedCredential)
+        val content = didReceiveData.toByteArray()
+        try {
+            chunks.offer(content)
+            chunks.close()
+        } catch (cause: CancellationException) {
         }
     }
 }

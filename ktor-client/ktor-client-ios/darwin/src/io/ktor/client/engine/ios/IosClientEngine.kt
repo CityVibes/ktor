@@ -20,7 +20,7 @@ internal class IosClientEngine(override val config: IosClientEngineConfig) : Htt
 
     override suspend fun execute(data: HttpRequestData): HttpResponseData {
         val callContext = callContext()
-        val responseReader = IosResponseReader(callContext, data, config)
+        val responseReader = IosResponseReader(callContext, data).freeze()
 
         val configuration = NSURLSessionConfiguration.defaultSessionConfiguration().apply {
             setupProxy(config)
@@ -47,11 +47,13 @@ internal class IosClientEngine(override val config: IosClientEngineConfig) : Htt
             config.requestConfig(this)
         }
 
-        val session = NSURLSession.sessionWithConfiguration(
-            configuration, responseReader.freeze(), delegateQueue = NSOperationQueue.mainQueue()
-        )
+        val session = NSURLSession.sessionWithConfiguration(configuration)
 
-        val task = session.dataTaskWithRequest(nativeRequest)
+        val task = session.dataTaskWithRequest(nativeRequest, completionHandler = { nsData: NSData?, response: NSURLResponse?, error: NSError? ->
+            if (nsData != null && response != null) {
+                responseReader.complete(response as NSHTTPURLResponse, nsData, error)
+            }
+        }.freeze())
 
         launch(callContext) {
             task.resume()
