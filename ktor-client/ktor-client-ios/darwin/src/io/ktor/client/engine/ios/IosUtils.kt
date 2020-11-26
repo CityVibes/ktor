@@ -31,6 +31,10 @@ internal fun ByteArray.toNSData(): NSData = NSMutableData().apply {
 }
 
 internal fun NSData.toByteArray(): ByteArray {
+    if (bytes == null) {
+        return ByteArray(0)
+    }
+
     val data: CPointer<ByteVar> = bytes!!.reinterpret()
     return ByteArray(length.toInt()) { index -> data[index] }
 }
